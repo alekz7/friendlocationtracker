@@ -302,7 +302,7 @@ const MapView: React.FC<MapViewProps> = ({
               className="bg-white/20 hover:bg-white/30 p-3 rounded-xl transition-all duration-200"
             >
               {copied ? (
-                <Check className="text-white" size={20} />
+                <Check className="text-white\" size={20} />
               ) : (
                 <Copy className="text-white" size={20} />
               )}
