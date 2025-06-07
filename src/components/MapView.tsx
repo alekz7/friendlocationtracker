@@ -1,5 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Users, MapPin, Settings, Share, Copy, Check } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default markers in Leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
+
+// Custom marker icons
+const createCustomIcon = (color: string, isCurrentUser: boolean = false) => {
+  const size = isCurrentUser ? 25 : 20;
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        background-color: ${color};
+        border: 3px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        ${isCurrentUser ? 'animation: pulse 2s infinite;' : ''}
+      "></div>
+      <style>
+        @keyframes pulse {
+          0% { box-shadow: 0 0 0 0 ${color}40; }
+          70% { box-shadow: 0 0 0 10px ${color}00; }
+          100% { box-shadow: 0 0 0 0 ${color}00; }
+        }
+      </style>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+};
 
 interface User {
   id: string;
@@ -20,6 +59,19 @@ interface MapViewProps {
   onBack: () => void;
 }
 
+// Component to update map center when current location changes
+const MapUpdater: React.FC<{ center: [number, number] | null }> = ({ center }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 15);
+    }
+  }, [center, map]);
+  
+  return null;
+};
+
 const MapView: React.FC<MapViewProps> = ({
   roomCode,
   userName,
@@ -32,7 +84,7 @@ const MapView: React.FC<MapViewProps> = ({
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [showUsersList, setShowUsersList] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
 
   // Get user's location
   useEffect(() => {
@@ -44,12 +96,17 @@ const MapView: React.FC<MapViewProps> = ({
             lng: position.coords.longitude
           };
           setCurrentLocation(location);
+          setMapCenter([location.lat, location.lng]);
           setLocationEnabled(true);
           onLocationUpdate(location);
         },
         (error) => {
           console.error('Error getting location:', error);
           setLocationEnabled(false);
+          // Set default location (New York City) if geolocation fails
+          const defaultLocation = { lat: 40.7128, lng: -74.0060 };
+          setCurrentLocation(defaultLocation);
+          setMapCenter([defaultLocation.lat, defaultLocation.lng]);
         },
         {
           enableHighAccuracy: true,
@@ -61,88 +118,13 @@ const MapView: React.FC<MapViewProps> = ({
       return () => {
         navigator.geolocation.clearWatch(watchId);
       };
+    } else {
+      // Fallback for browsers without geolocation
+      const defaultLocation = { lat: 40.7128, lng: -74.0060 };
+      setCurrentLocation(defaultLocation);
+      setMapCenter([defaultLocation.lat, defaultLocation.lng]);
     }
   }, [onLocationUpdate]);
-
-  // Initialize Google Maps
-  useEffect(() => {
-    const initMap = () => {
-      if (currentLocation && window.google) {
-        const map = new window.google.maps.Map(document.getElementById('map'), {
-          zoom: 15,
-          center: currentLocation,
-          styles: [
-            {
-              featureType: 'all',
-              elementType: 'geometry',
-              stylers: [{ saturation: -70 }]
-            },
-            {
-              featureType: 'all',
-              elementType: 'labels',
-              stylers: [{ lightness: 20 }]
-            }
-          ]
-        });
-
-        // Add markers for all users
-        const markers = new Map();
-
-        // Add current user marker
-        if (currentLocation) {
-          const currentUserMarker = new window.google.maps.Marker({
-            position: currentLocation,
-            map,
-            title: `${userName} (You)`,
-            icon: {
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 10,
-              fillColor: '#3B82F6',
-              fillOpacity: 1,
-              strokeColor: '#ffffff',
-              strokeWeight: 3
-            }
-          });
-          markers.set('current-user', currentUserMarker);
-        }
-
-        // Add other users' markers
-        users.forEach(user => {
-          if (user.location && user.id !== 'current-user') {
-            const marker = new window.google.maps.Marker({
-              position: user.location,
-              map,
-              title: user.name,
-              icon: {
-                path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 8,
-                fillColor: '#10B981',
-                fillOpacity: 1,
-                strokeColor: '#ffffff',
-                strokeWeight: 2
-              }
-            });
-            markers.set(user.id, marker);
-          }
-        });
-
-        setMapLoaded(true);
-      }
-    };
-
-    if (currentLocation) {
-      if (window.google) {
-        initMap();
-      } else {
-        // Load Google Maps API
-        const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap`;
-        script.async = true;
-        window.initMap = initMap;
-        document.head.appendChild(script);
-      }
-    }
-  }, [currentLocation, users, userName]);
 
   const copyRoomCode = () => {
     navigator.clipboard.writeText(roomCode);
@@ -165,7 +147,7 @@ const MapView: React.FC<MapViewProps> = ({
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-400 via-purple-500 to-green-400 relative">
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-20 bg-white/10 backdrop-blur-lg border-b border-white/20">
+      <div className="absolute top-0 left-0 right-0 z-[1000] bg-white/10 backdrop-blur-lg border-b border-white/20">
         <div className="flex items-center justify-between p-4">
           <button
             onClick={onBack}
@@ -199,15 +181,7 @@ const MapView: React.FC<MapViewProps> = ({
 
       {/* Map Container */}
       <div className="relative h-screen pt-20">
-        {!locationEnabled ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 text-center">
-              <MapPin className="mx-auto mb-4 text-white\" size={48} />
-              <h3 className="text-white text-xl font-semibold mb-2">Location Required</h3>
-              <p className="text-white/80">Please enable location services to share your position</p>
-            </div>
-          </div>
-        ) : !mapLoaded ? (
+        {!mapCenter ? (
           <div className="flex items-center justify-center h-full">
             <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-4 border-white/30 border-t-white mx-auto mb-4"></div>
@@ -215,13 +189,62 @@ const MapView: React.FC<MapViewProps> = ({
             </div>
           </div>
         ) : (
-          <div id="map" className="w-full h-full rounded-t-3xl overflow-hidden shadow-2xl"></div>
+          <div className="w-full h-full rounded-t-3xl overflow-hidden shadow-2xl">
+            <MapContainer
+              center={mapCenter}
+              zoom={15}
+              style={{ height: '100%', width: '100%' }}
+              zoomControl={false}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              
+              <MapUpdater center={mapCenter} />
+              
+              {/* Current user marker */}
+              {currentLocation && (
+                <Marker
+                  position={[currentLocation.lat, currentLocation.lng]}
+                  icon={createCustomIcon('#3B82F6', true)}
+                >
+                  <Popup>
+                    <div className="text-center">
+                      <strong>{userName} (You)</strong>
+                      <br />
+                      {locationEnabled ? 'Location shared' : 'Location disabled'}
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
+              
+              {/* Other users' markers */}
+              {users.map((user) => (
+                user.location && (
+                  <Marker
+                    key={user.id}
+                    position={[user.location.lat, user.location.lng]}
+                    icon={createCustomIcon('#10B981')}
+                  >
+                    <Popup>
+                      <div className="text-center">
+                        <strong>{user.name}</strong>
+                        <br />
+                        Last seen: {formatLastSeen(new Date(user.lastSeen))}
+                      </div>
+                    </Popup>
+                  </Marker>
+                )
+              ))}
+            </MapContainer>
+          </div>
         )}
       </div>
 
       {/* Users List Sidebar */}
       {showUsersList && (
-        <div className="absolute right-4 top-24 bottom-4 w-80 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden z-10">
+        <div className="absolute right-4 top-24 bottom-4 w-80 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 overflow-hidden z-[999]">
           <div className="p-4 border-b border-white/20">
             <h3 className="text-white font-semibold text-lg">Active Members</h3>
           </div>
@@ -267,7 +290,7 @@ const MapView: React.FC<MapViewProps> = ({
       )}
 
       {/* Room Code Display */}
-      <div className="absolute bottom-6 left-6 right-6 z-10">
+      <div className="absolute bottom-6 left-6 right-6 z-[999]">
         <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20">
           <div className="flex items-center justify-between">
             <div>
@@ -279,7 +302,7 @@ const MapView: React.FC<MapViewProps> = ({
               className="bg-white/20 hover:bg-white/30 p-3 rounded-xl transition-all duration-200"
             >
               {copied ? (
-                <Check className="text-white\" size={20} />
+                <Check className="text-white" size={20} />
               ) : (
                 <Copy className="text-white" size={20} />
               )}

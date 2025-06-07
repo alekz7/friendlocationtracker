@@ -5,6 +5,26 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FriendTracker - Real-time Location Sharing</title>
+    <style>
+      /* Custom styles for Leaflet markers */
+      .custom-marker {
+        background: transparent !important;
+        border: none !important;
+      }
+      
+      /* Override Leaflet's default styles */
+      .leaflet-container {
+        font-family: inherit;
+      }
+      
+      .leaflet-popup-content-wrapper {
+        border-radius: 8px;
+      }
+      
+      .leaflet-popup-tip {
+        background: white;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
